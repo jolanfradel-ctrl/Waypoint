@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS Tracker - ESP32</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #eef2f7; }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 10px; }
+        #map { 
+            height: 70vh; 
+            width: 100%; 
+            border-radius: 12px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); 
+            border: 4px solid white;
+        }
+        #status { text-align: center; margin-top: 10px; font-weight: bold; color: #34495e; }
+    </style>
+</head>
+<body>
+
+    <h1>📍 Suivi GPS ESP32</h1>
+    <div id="map"></div>
+    <div id="status">En attente de connexion...</div>
+
+    <script>
+        // 1. Initialisation
+        var map = L.map('map').setView([46.6, 2.4], 6);
+        var trajetLine = null; 
+        var destinationMarker = null; // <-- CORRECTION 1 : On déclare la variable ici
+        var watchdogTimer = null; // Variable pour surveiller la connexion
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        var marker = L.marker([0, 0]).addTo(map);
+        var isFirstPoint = true; 
+
+        // 2. Configuration MQTT
+        var brokerUrl = "21f2976a53f440f5b67745ca8e8a14b9.s1.eu.hivemq.cloud";
+        var client = new Paho.MQTT.Client("wss://" + brokerUrl + ":8884/mqtt", "WebClient_" + Math.random());
+
+        client.onMessageArrived = function(message) {
+    try {
+        // --- LE CHIEN DE GARDE (WATCHDOG) ---
+        // On annule le compte à rebours précédent car on vient de recevoir un signe de vie
+        clearTimeout(watchdogTimer);
+
+        // On relance un nouveau compte à rebours de 2000ms (2 secondes)
+        // Si cette fonction n'est pas rappelée avant 2s, 'alerteDeconnexion' s'exécutera.
+        watchdogTimer = setTimeout(alerteDeconnexion, 2000);
+        
+        // On remet le marqueur bien visible (au cas où il était devenu gris)
+        marker.setOpacity(1);
+        // ------------------------------------
+
+        var data = JSON.parse(message.payloadString);
+        var lat = parseFloat(data.lat);
+        var lng = parseFloat(data.lng);
+
+        // Déplacer le marqueur
+        marker.setLatLng([lat, lng]);
+
+        if (isFirstPoint) {
+            map.setView([lat, lng], 18);
+            isFirstPoint = false; 
+        } else {
+            map.panTo([lat, lng]);
+        }
+
+        document.getElementById('status').innerHTML = "✅ Reçu : " + lat.toFixed(6) + ", " + lng.toFixed(6);
+        mettreAJourLigne();
+        
+    } catch (e) {
+        console.error("Erreur JSON :", e);
+    }
+};
+
+        client.connect({
+            userName: "esp32",
+            password: "Esp32_Gps",
+            useSSL: true,
+            onSuccess: function() {
+                document.getElementById('status').innerHTML = "🌐 Connecté au Broker - En attente du GPS...";
+                client.subscribe("esp32/gps/data");
+            }
+        });
+
+        // 3. Fonction de mise à jour de la ligne
+        function mettreAJourLigne() {
+            // On vérifie que le marqueur ESP32 et le marqueur destination existent
+            if (marker && destinationMarker) {
+                var pointDepart = marker.getLatLng();
+                var pointArrivee = destinationMarker.getLatLng();
+
+                if (trajetLine !== null) {
+                    map.removeLayer(trajetLine);
+                }
+
+                trajetLine = L.polyline([pointDepart, pointArrivee], {
+                    color: 'blue',
+                    weight: 3,
+                    opacity: 0.6,
+                    dashArray: '10, 10'
+                }).addTo(map);
+            }
+        }
+        function alerteDeconnexion() {
+            document.getElementById('status').innerHTML = "<span style='color:red;'>⚠️ ERREUR : ESP32 déconnecté (Pas de signal > 2s)</span>";
+            // Optionnel : on peut rendre le marqueur gris pour montrer qu'il n'est plus à jour
+             marker.setOpacity(0.5);
+        }
+
+        // 4. Clic sur la carte
+        map.on('click', function(e) {
+            var latClick = e.latlng.lat;
+            var lngClick = e.latlng.lng;
+
+            var choix = confirm("Voulez-vous envoyer cette destination ?");
+
+            if (choix == true) {
+                // CORRECTION 2 : Si un marqueur existait déjà, on le supprime avant d'en créer un nouveau
+                if (destinationMarker !== null) {
+                    map.removeLayer(destinationMarker);
+                }
+
+                var payload = JSON.stringify({
+                    lat_cible: latClick,
+                    lng_cible: lngClick
+                });
+
+                var message = new Paho.MQTT.Message(payload);
+                message.destinationName = "esp32/gps/command";
+                client.send(message);
+
+                // CORRECTION 3 : On enregistre le nouveau marqueur dans destinationMarker
+                destinationMarker = L.circleMarker([latClick, lngClick], {color: 'green', radius: 10}).addTo(map)
+                    .bindPopup("Cible confirmée !").openPopup();
+                
+                console.log("✅ Cible envoyée.");
+                mettreAJourLigne(); 
+            } 
+        });
+    </script>
+</body>
+</html>
