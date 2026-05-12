@@ -3,151 +3,148 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPS Tracker - ESP32</title>
+    <title>GCS - Waypoints & Kalman</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
 
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #eef2f7; }
-        h1 { text-align: center; color: #2c3e50; margin-bottom: 10px; }
-        #map { 
-            height: 70vh; 
-            width: 100%; 
-            border-radius: 12px; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2); 
-            border: 4px solid white;
-        }
-        #status { text-align: center; margin-top: 10px; font-weight: bold; color: #34495e; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f7f9; }
+        
+        /* Panneau de gauche : Contrôles */
+        #controls { width: 350px; padding: 20px; background: #2c3e50; color: white; box-shadow: 4px 0 10px rgba(0,0,0,0.1); z-index: 1000; overflow-y: auto; }
+        
+        /* Carte à droite */
+        #map { flex-grow: 1; height: 100%; }
+
+        .card { background: #34495e; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        h2 { font-size: 1.2rem; margin-top: 0; border-bottom: 1px solid #5d6d7e; padding-bottom: 10px; }
+        
+        input { width: 80%; padding: 8px; margin: 5px 0; border-radius: 4px; border: none; }
+        button { width: 100%; padding: 10px; margin-top: 10px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        
+        .btn-send { background: #27ae60; color: white; }
+        .btn-send:hover { background: #2ecc71; }
+        .btn-clear { background: #e74c3c; color: white; }
+
+        #waypoint-list { font-size: 0.8rem; max-height: 150px; overflow-y: auto; background: #1a252f; padding: 5px; border-radius: 4px; }
+        #status { font-size: 0.9rem; color: #bdc3c7; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h1>📍 Suivi GPS ESP32</h1>
+    <div id="controls">
+        <h2>🛰️ Télémétrie</h2>
+        <div id="status">Déconnecté...</div>
+        
+        <h2>🛠️ Filtre Kalman</h2>
+        <div class="card">
+            <label>Gain Q (Process Noise)</label><br>
+            <input type="number" id="gainQ" step="0.0001" value="0.001">
+            <button class="btn-send" onclick="sendParam('KQ', 'gainQ')">Mettre à jour Q</button>
+            
+            <label style="margin-top:10px; display:block;">Gain R (Sensor Noise)</label>
+            <input type="number" id="gainR" step="0.0001" value="0.01">
+            <button class="btn-send" onclick="sendParam('KR', 'gainR')">Mettre à jour R</button>
+        </div>
+
+        <h2>📍 Parcours (Waypoints)</h2>
+        <div class="card">
+            <div id="waypoint-list">Aucun point sélectionné</div>
+            <button class="btn-send" onclick="sendWaypoints()">🚀 Envoyer le parcours</button>
+            <button class="btn-clear" onclick="clearWaypoints()">Effacer tout</button>
+        </div>
+    </div>
+
     <div id="map"></div>
-    <div id="status">En attente de connexion...</div>
 
     <script>
-        // 1. Initialisation
         var map = L.map('map').setView([46.6, 2.4], 6);
-        var trajetLine = null; 
-        var destinationMarker = null; // <-- CORRECTION 1 : On déclare la variable ici
-        var watchdogTimer = null; // Variable pour surveiller la connexion
+        var waypoints = []; // Tableau de stockage des points
+        var waypointMarkers = [];
+        var polyline = L.polyline([], {color: 'red', dashArray: '5, 5'}).addTo(map);
+        var droneMarker = L.marker([0, 0]).addTo(map);
         
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-        var marker = L.marker([0, 0]).addTo(map);
-        var isFirstPoint = true; 
-
-        // 2. Configuration MQTT
+        // CONFIG MQTT
         var brokerUrl = "21f2976a53f440f5b67745ca8e8a14b9.s1.eu.hivemq.cloud";
         var client = new Paho.MQTT.Client("wss://" + brokerUrl + ":8884/mqtt", "WebClient_" + Math.random());
 
         client.onMessageArrived = function(message) {
-    try {
-        // --- LE CHIEN DE GARDE (WATCHDOG) ---
-        // On annule le compte à rebours précédent car on vient de recevoir un signe de vie
-        clearTimeout(watchdogTimer);
-
-        // On relance un nouveau compte à rebours de 2000ms (2 secondes)
-        // Si cette fonction n'est pas rappelée avant 2s, 'alerteDeconnexion' s'exécutera.
-        watchdogTimer = setTimeout(alerteDeconnexion, 2000);
-        
-        // On remet le marqueur bien visible (au cas où il était devenu gris)
-        marker.setOpacity(1);
-        // ------------------------------------
-
-        var data = JSON.parse(message.payloadString);
-        var lat = parseFloat(data.lat);
-        var lng = parseFloat(data.lng);
-
-        // Déplacer le marqueur
-        marker.setLatLng([lat, lng]);
-
-        if (isFirstPoint) {
-            map.setView([lat, lng], 18);
-            isFirstPoint = false; 
-        } else {
-            map.panTo([lat, lng]);
-        }
-
-        document.getElementById('status').innerHTML = "✅ Reçu : " + lat.toFixed(6) + ", " + lng.toFixed(6);
-        mettreAJourLigne();
-        
-    } catch (e) {
-        console.error("Erreur JSON :", e);
-    }
-};
+            var value = parseFloat(message.payloadString);
+            if (message.destinationName.endsWith("LAT")) droneMarker.setLatLng([value, droneMarker.getLatLng().lng]);
+            if (message.destinationName.endsWith("LNG")) droneMarker.setLatLng([droneMarker.getLatLng().lat, value]);
+        };
 
         client.connect({
-            userName: "esp32",
-            password: "Esp32_Gps",
-            useSSL: true,
+            userName: "esp32", password: "Esp32_Gps", useSSL: true,
             onSuccess: function() {
-                document.getElementById('status').innerHTML = "🌐 Connecté au Broker - En attente du GPS...";
-                client.subscribe("esp32/gps/data");
+                document.getElementById('status').innerHTML = "🌐 Connecté au Broker";
+                client.subscribe("esp32/gps/status/LAT");
+                client.subscribe("esp32/gps/status/LNG");
             }
         });
 
-        // 3. Fonction de mise à jour de la ligne
-        function mettreAJourLigne() {
-            // On vérifie que le marqueur ESP32 et le marqueur destination existent
-            if (marker && destinationMarker) {
-                var pointDepart = marker.getLatLng();
-                var pointArrivee = destinationMarker.getLatLng();
-
-                if (trajetLine !== null) {
-                    map.removeLayer(trajetLine);
-                }
-
-                trajetLine = L.polyline([pointDepart, pointArrivee], {
-                    color: 'blue',
-                    weight: 3,
-                    opacity: 0.6,
-                    dashArray: '10, 10'
-                }).addTo(map);
-            }
-        }
-        function alerteDeconnexion() {
-            document.getElementById('status').innerHTML = "<span style='color:red;'>⚠️ ERREUR : ESP32 déconnecté (Pas de signal > 2s)</span>";
-            // Optionnel : on peut rendre le marqueur gris pour montrer qu'il n'est plus à jour
-             marker.setOpacity(0.5);
-        }
-
-        // 4. Clic sur la carte
+        // AJOUTER UN POINT AU CLIC
         map.on('click', function(e) {
-            var latClick = e.latlng.lat;
-            var lngClick = e.latlng.lng;
-
-            var choix = confirm("Voulez-vous envoyer cette destination ?");
-
-            if (choix == true) {
-                // CORRECTION 2 : Si un marqueur existait déjà, on le supprime avant d'en créer un nouveau
-                if (destinationMarker !== null) {
-                    map.removeLayer(destinationMarker);
-                }
-
-                var payload = JSON.stringify({
-                    lat_cible: latClick,
-                    lng_cible: lngClick
-                });
-
-                var message = new Paho.MQTT.Message(payload);
-                message.destinationName = "esp32/gps/command";
-                client.send(message);
-
-                // CORRECTION 3 : On enregistre le nouveau marqueur dans destinationMarker
-                destinationMarker = L.circleMarker([latClick, lngClick], {color: 'green', radius: 10}).addTo(map)
-                    .bindPopup("Cible confirmée !").openPopup();
-                
-                console.log("✅ Cible envoyée.");
-                mettreAJourLigne(); 
-            } 
+            var lat = e.latlng.lat;
+            var lng = e.latlng.lng;
+            
+            waypoints.push({lat: lat, lng: lng});
+            
+            // Ajouter un marqueur visuel
+            var m = L.circleMarker([lat, lng], {color: 'yellow', radius: 5}).addTo(map);
+            waypointMarkers.push(m);
+            
+            updateUI();
         });
+
+        function updateUI() {
+            var listDiv = document.getElementById('waypoint-list');
+            listDiv.innerHTML = waypoints.map((w, i) => `Point ${i+1}: ${w.lat.toFixed(4)}`).join('<br>');
+            polyline.setLatLngs(waypoints.map(w => [w.lat, w.lng]));
+        }
+
+        // ENVOYER LES PARAMÈTRES (KALMAN)
+        function sendParam(key, inputId) {
+            var val = document.getElementById(inputId).value;
+            var msg = new Paho.MQTT.Message(key + "=" + val);
+            msg.destinationName = "esp32/gps/command";
+            client.send(msg);
+            alert("Envoyé : " + key + "=" + val);
+        }
+
+        // ENVOYER LES WAYPOINTS
+        function sendWaypoints() {
+            if (waypoints.length === 0) return;
+            
+            // On peut envoyer les points un par un ou dans une boucle
+            // Ici, on envoie chaque point avec un index pour ta DataBase
+            waypoints.forEach((w, index) => {
+                var msgLat = new Paho.MQTT.Message(`WPLAT${index}=${w.lat.toFixed(8)}`);
+                var msgLng = new Paho.MQTT.Message(`WPLNG${index}=${w.lng.toFixed(8)}`);
+                msgLat.destinationName = "esp32/gps/command";
+                msgLng.destinationName = "esp32/gps/command";
+                client.send(msgLat);
+                client.send(msgLng);
+            });
+            
+            // Envoyer le nombre total de points pour que l'ESP sache combien lire
+            var msgCount = new Paho.MQTT.Message(`WPCNT=${waypoints.length}`);
+            msgCount.destinationName = "esp32/gps/command";
+            client.send(msgCount);
+            
+            alert("Parcours envoyé (" + waypoints.length + " points)");
+        }
+
+        function clearWaypoints() {
+            waypoints = [];
+            waypointMarkers.forEach(m => map.removeLayer(m));
+            waypointMarkers = [];
+            updateUI();
+        }
     </script>
 </body>
 </html>
