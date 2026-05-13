@@ -11,46 +11,50 @@
 
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f7f9; }
-        
-        /* Panneau de gauche : Contrôles */
         #controls { width: 350px; padding: 20px; background: #2c3e50; color: white; box-shadow: 4px 0 10px rgba(0,0,0,0.1); z-index: 1000; overflow-y: auto; }
-        
-        /* Carte à droite */
         #map { flex-grow: 1; height: 100%; }
-
         .card { background: #34495e; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
         h2 { font-size: 1.2rem; margin-top: 0; border-bottom: 1px solid #5d6d7e; padding-bottom: 10px; }
-        
+        h3 { font-size: 1rem; margin-bottom: 10px; color: #ecf0f1; }
+        .data-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; text-align: center; }
+        .data-val { background: #1a252f; padding: 5px; border-radius: 4px; font-family: monospace; color: #2ecc71; }
         input { width: 80%; padding: 8px; margin: 5px 0; border-radius: 4px; border: none; }
         button { width: 100%; padding: 10px; margin-top: 10px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        
         .btn-send { background: #27ae60; color: white; }
         .btn-send:hover { background: #2ecc71; }
         .btn-clear { background: #e74c3c; color: white; }
-
-        #waypoint-list { font-size: 0.8rem; max-height: 150px; overflow-y: auto; background: #1a252f; padding: 5px; border-radius: 4px; }
-        #status { font-size: 0.9rem; color: #bdc3c7; margin-top: 10px; }
+        #waypoint-list { font-size: 0.8rem; max-height: 150px; overflow-y: auto; background: #1a252f; padding: 5px; border-radius: 4px; margin-bottom: 10px;}
+        #status { font-size: 0.9rem; color: #bdc3c7; margin-bottom: 15px; }
     </style>
 </head>
 <body>
 
     <div id="controls">
-        <h2>🛰️ Télémétrie</h2>
+        <h2>🛰️ GCS Télémétrie</h2>
         <div id="status">Déconnecté...</div>
         
-        <h2>🛠️ Filtre Kalman</h2>
         <div class="card">
-            <label>Gain Q (Process Noise)</label><br>
+            <h3>🚀 Accélération (m/s²)</h3>
+            <div class="data-grid">
+                <div>X<div id="ax" class="data-val">0.00</div></div>
+                <div>Y<div id="ay" class="data-val">0.00</div></div>
+                <div>Z<div id="az" class="data-val">0.00</div></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🛠️ Filtre Kalman</h3>
+            <label>Gain Q (Process)</label>
             <input type="number" id="gainQ" step="0.0001" value="0.001">
             <button class="btn-send" onclick="sendParam('KQ', 'gainQ')">Mettre à jour Q</button>
             
-            <label style="margin-top:10px; display:block;">Gain R (Sensor Noise)</label>
+            <label style="margin-top:10px; display:block;">Gain R (Sensor)</label>
             <input type="number" id="gainR" step="0.0001" value="0.01">
             <button class="btn-send" onclick="sendParam('KR', 'gainR')">Mettre à jour R</button>
         </div>
 
-        <h2>📍 Parcours (Waypoints)</h2>
         <div class="card">
+            <h3>📍 Parcours</h3>
             <div id="waypoint-list">Aucun point sélectionné</div>
             <button class="btn-send" onclick="sendWaypoints()">🚀 Envoyer le parcours</button>
             <button class="btn-clear" onclick="clearWaypoints()">Effacer tout</button>
@@ -60,91 +64,24 @@
     <div id="map"></div>
 
     <script>
+        // Initialisation de la carte
         var map = L.map('map').setView([46.6, 2.4], 6);
-        var waypoints = []; // Tableau de stockage des points
-        var waypointMarkers = [];
-        var polyline = L.polyline([], {color: 'red', dashArray: '5, 5'}).addTo(map);
-        var droneMarker = L.marker([0, 0]).addTo(map);
-        
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+        var waypoints = []; 
+        var waypointMarkers = [];
+        var polyline = L.polyline([], {color: '#e67e22', weight: 3, dashArray: '10, 10'}).addTo(map);
+        var droneToFirstPoint = L.polyline([], {color: '#2ecc71', weight: 2, dashArray: '5, 5'}).addTo(map);
+        
+        // Icône personnalisée pour le drone
+        var droneIcon = L.divIcon({
+            className: 'custom-div-icon',
+            html: "<div style='background-color:#3498db; width:12px; height:12px; border-radius:50%; border:2px solid white;'></div>",
+            iconSize: [12, 12],
+            iconAnchor: [6, 6]
+        });
+        var droneMarker = L.marker([0, 0], {icon: droneIcon}).addTo(map);
 
         // CONFIG MQTT
         var brokerUrl = "21f2976a53f440f5b67745ca8e8a14b9.s1.eu.hivemq.cloud";
-        var client = new Paho.MQTT.Client("wss://" + brokerUrl + ":8884/mqtt", "WebClient_" + Math.random());
-
-        client.onMessageArrived = function(message) {
-            var value = parseFloat(message.payloadString);
-            if (message.destinationName.endsWith("LAT")) droneMarker.setLatLng([value, droneMarker.getLatLng().lng]);
-            if (message.destinationName.endsWith("LNG")) droneMarker.setLatLng([droneMarker.getLatLng().lat, value]);
-        };
-
-        client.connect({
-            userName: "esp32", password: "Esp32_Gps", useSSL: true,
-            onSuccess: function() {
-                document.getElementById('status').innerHTML = "🌐 Connecté au Broker";
-                client.subscribe("esp32/gps/status/LAT");
-                client.subscribe("esp32/gps/status/LNG");
-            }
-        });
-
-        // AJOUTER UN POINT AU CLIC
-        map.on('click', function(e) {
-            var lat = e.latlng.lat;
-            var lng = e.latlng.lng;
-            
-            waypoints.push({lat: lat, lng: lng});
-            
-            // Ajouter un marqueur visuel
-            var m = L.circleMarker([lat, lng], {color: 'yellow', radius: 5}).addTo(map);
-            waypointMarkers.push(m);
-            
-            updateUI();
-        });
-
-        function updateUI() {
-            var listDiv = document.getElementById('waypoint-list');
-            listDiv.innerHTML = waypoints.map((w, i) => `Point ${i+1}: ${w.lat.toFixed(4)}`).join('<br>');
-            polyline.setLatLngs(waypoints.map(w => [w.lat, w.lng]));
-        }
-
-        // ENVOYER LES PARAMÈTRES (KALMAN)
-        function sendParam(key, inputId) {
-            var val = document.getElementById(inputId).value;
-            var msg = new Paho.MQTT.Message(key + "=" + val);
-            msg.destinationName = "esp32/gps/command";
-            client.send(msg);
-            alert("Envoyé : " + key + "=" + val);
-        }
-
-        // ENVOYER LES WAYPOINTS
-        function sendWaypoints() {
-            if (waypoints.length === 0) return;
-            
-            // On peut envoyer les points un par un ou dans une boucle
-            // Ici, on envoie chaque point avec un index pour ta DataBase
-            waypoints.forEach((w, index) => {
-                var msgLat = new Paho.MQTT.Message(`WPLAT${index}=${w.lat.toFixed(8)}`);
-                var msgLng = new Paho.MQTT.Message(`WPLNG${index}=${w.lng.toFixed(8)}`);
-                msgLat.destinationName = "esp32/gps/command";
-                msgLng.destinationName = "esp32/gps/command";
-                client.send(msgLat);
-                client.send(msgLng);
-            });
-            
-            // Envoyer le nombre total de points pour que l'ESP sache combien lire
-            var msgCount = new Paho.MQTT.Message(`WPCNT=${waypoints.length}`);
-            msgCount.destinationName = "esp32/gps/command";
-            client.send(msgCount);
-            
-            alert("Parcours envoyé (" + waypoints.length + " points)");
-        }
-
-        function clearWaypoints() {
-            waypoints = [];
-            waypointMarkers.forEach(m => map.removeLayer(m));
-            waypointMarkers = [];
-            updateUI();
-        }
-    </script>
-</body>
-</html>
+        var client = new Paho.MQTT.Client("wss://" + brokerUrl + ":88
