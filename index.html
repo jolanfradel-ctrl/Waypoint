@@ -1,150 +1,600 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GCS - Waypoints & Kalman</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GCS — Navigation autonome</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  :root {
+    --bg0: #0a0e13;
+    --bg1: #111820;
+    --bg2: #192232;
+    --bg3: #1f2d40;
+    --accent: #00d4ff;
+    --accent2: #0088aa;
+    --ok: #00e676;
+    --warn: #ffb300;
+    --danger: #ff4444;
+    --text: #e0eaf5;
+    --muted: #6a8aaa;
+    --border: rgba(0,212,255,0.12);
+    --radius: 6px;
+    --font: 'Segoe UI', system-ui, sans-serif;
+    --mono: 'Consolas', 'SF Mono', monospace;
+  }
 
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f7f9; }
-        
-        /* Panneau de gauche : Contrôles */
-        #controls { width: 350px; padding: 20px; background: #2c3e50; color: white; box-shadow: 4px 0 10px rgba(0,0,0,0.1); z-index: 1000; overflow-y: auto; }
-        
-        /* Carte à droite */
-        #map { flex-grow: 1; height: 100%; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg0); color: var(--text); font-family: var(--font); }
 
-        .card { background: #34495e; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-        h2 { font-size: 1.2rem; margin-top: 0; border-bottom: 1px solid #5d6d7e; padding-bottom: 10px; }
-        
-        input { width: 80%; padding: 8px; margin: 5px 0; border-radius: 4px; border: none; }
-        button { width: 100%; padding: 10px; margin-top: 10px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        
-        .btn-send { background: #27ae60; color: white; }
-        .btn-send:hover { background: #2ecc71; }
-        .btn-clear { background: #e74c3c; color: white; }
+  /* ── LAYOUT ── */
+  #app { display: flex; height: 100vh; }
+  #sidebar { width: 320px; min-width: 320px; background: var(--bg1); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #map-wrap { flex: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
 
-        #waypoint-list { font-size: 0.8rem; max-height: 150px; overflow-y: auto; background: #1a252f; padding: 5px; border-radius: 4px; }
-        #status { font-size: 0.9rem; color: #bdc3c7; margin-top: 10px; }
-    </style>
+  /* ── SIDEBAR HEADER ── */
+  #sidebar-header { padding: 16px 20px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  #sidebar-header h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+  #conn-status { margin-top: 6px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  #conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
+  #conn-dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  #conn-dot.err { background: var(--danger); }
+
+  /* ── SCROLL AREA ── */
+  #sidebar-body { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+  #sidebar-body::-webkit-scrollbar { width: 4px; }
+  #sidebar-body::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 2px; }
+
+  /* ── SECTION ── */
+  .section { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .section-head { padding: 9px 14px; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 7px; }
+  .section-head svg { opacity: 0.6; }
+  .section-body { padding: 12px 14px; }
+
+  /* ── TELEMETRY GRID ── */
+  .tele-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .tele-cell { background: var(--bg0); border-radius: 4px; padding: 8px 6px; text-align: center; }
+  .tele-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .tele-val { font-family: var(--mono); font-size: 13px; color: var(--accent); font-weight: 600; }
+
+  .tele-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .tele-pair .tele-val { font-size: 11px; }
+
+  /* ── GPS COMPARE ── */
+  .gps-row { display: flex; flex-direction: column; gap: 5px; }
+  .gps-tag { display: flex; align-items: center; justify-content: space-between; }
+  .gps-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .gps-badge.raw { background: rgba(255,179,0,0.15); color: var(--warn); border: 1px solid rgba(255,179,0,0.25); }
+  .gps-badge.kal { background: rgba(0,212,255,0.12); color: var(--accent); border: 1px solid rgba(0,212,255,0.2); }
+  .gps-coords { font-family: var(--mono); font-size: 11px; color: var(--text); }
+
+  /* ── KALMAN CONTROLS ── */
+  .param-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .param-row:last-child { margin-bottom: 0; }
+  .param-label { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+  .param-label span { font-family: var(--mono); color: var(--text); }
+  .slider-wrap { display: flex; gap: 8px; align-items: center; }
+  input[type=range] { flex: 1; -webkit-appearance: none; height: 3px; background: var(--bg3); border-radius: 2px; outline: none; cursor: pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg1); cursor: pointer; }
+  input[type=number].small { width: 72px; background: var(--bg0); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--mono); font-size: 12px; padding: 4px 6px; outline: none; }
+  input[type=number].small:focus { border-color: var(--accent); }
+  .btn { display: block; width: 100%; padding: 8px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; transition: opacity 0.2s, transform 0.1s; }
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: var(--accent2); color: #fff; margin-top: 10px; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent); color: var(--bg0); }
+  .btn-danger { background: rgba(255,68,68,0.15); color: var(--danger); border: 1px solid rgba(255,68,68,0.25); margin-top: 6px; }
+  .btn-danger:hover { background: rgba(255,68,68,0.25); }
+
+  /* ── WAYPOINT LIST ── */
+  #wp-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; margin-bottom: 10px; }
+  #wp-list::-webkit-scrollbar { width: 3px; }
+  #wp-list::-webkit-scrollbar-thumb { background: var(--bg3); }
+  .wp-item { background: var(--bg0); border: 1px solid var(--border); border-radius: 4px; padding: 7px 10px; display: flex; align-items: center; gap: 8px; cursor: grab; transition: border-color 0.2s; }
+  .wp-item:hover { border-color: rgba(0,212,255,0.3); }
+  .wp-item.active { border-color: var(--ok); }
+  .wp-num { font-size: 10px; font-weight: 700; color: var(--accent); min-width: 18px; font-family: var(--mono); }
+  .wp-coords { flex: 1; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .wp-speed { font-family: var(--mono); font-size: 11px; color: var(--warn); font-weight: 600; }
+  .wp-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 2px; line-height: 1; }
+  .wp-del:hover { color: var(--danger); }
+  .wp-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 16px 0; font-style: italic; }
+
+  /* ── NAV STATUS ── */
+  .nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .nav-cell { background: var(--bg0); border-radius: 4px; padding: 8px 10px; }
+  .nav-cell-label { font-size: 10px; color: var(--muted); text-transform: uppercase; margin-bottom: 3px; letter-spacing: 0.08em; }
+  .nav-cell-val { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--ok); }
+
+  /* ── SPEED POPUP ── */
+  #speed-popup { display: none; position: fixed; z-index: 9999; background: var(--bg1); border: 1px solid var(--accent); border-radius: 8px; padding: 16px 18px; min-width: 220px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
+  #speed-popup h3 { font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; }
+  #speed-popup .coords-preview { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 10px; }
+  .speed-input-wrap { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  #speed-input { flex: 1; background: var(--bg0); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--mono); font-size: 18px; padding: 8px 10px; outline: none; width: 100%; }
+  #speed-input:focus { border-color: var(--accent); }
+  .speed-unit { font-size: 12px; color: var(--muted); }
+  .popup-btns { display: flex; gap: 8px; }
+  .popup-btns .btn { flex: 1; margin-top: 0; padding: 7px; }
+
+  /* ── MAP OVERLAYS ── */
+  .map-badge { position: absolute; z-index: 500; background: rgba(10,14,19,0.85); backdrop-filter: blur(4px); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; font-size: 11px; color: var(--muted); }
+  #map-hint { bottom: 16px; left: 50%; transform: translateX(-50%); pointer-events: none; transition: opacity 0.4s; }
+  #map-hint span { color: var(--accent); }
+
+  /* ── LEAFLET OVERRIDES ── */
+  .leaflet-container { background: #0d1520 !important; }
+  .leaflet-tile { filter: brightness(0.55) saturate(0.4) hue-rotate(195deg); }
+  .wp-marker-label { background: rgba(0,212,255,0.9); color: #0a0e13; font-weight: 700; font-size: 11px; padding: 2px 6px; border-radius: 3px; border: none; white-space: nowrap; }
+
+  /* ── SEND PROGRESS ── */
+  #send-bar { height: 2px; background: var(--bg3); border-radius: 1px; overflow: hidden; margin-top: 8px; display: none; }
+  #send-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.15s; }
+</style>
 </head>
 <body>
 
-    <div id="controls">
-        <h2>🛰️ Télémétrie</h2>
-        <div id="status">Déconnecté...</div>
-        
-        <h2>🛠️ Filtre Kalman</h2>
-        <div class="card">
-            <label>Gain Q (Process Noise)</label><br>
-            <input type="number" id="gainQ" step="0.0001" value="0.001">
-            <button class="btn-send" onclick="sendParam('KQ', 'gainQ')">Mettre à jour Q</button>
-            
-            <label style="margin-top:10px; display:block;">Gain R (Sensor Noise)</label>
-            <input type="number" id="gainR" step="0.0001" value="0.01">
-            <button class="btn-send" onclick="sendParam('KR', 'gainR')">Mettre à jour R</button>
-        </div>
-
-        <h2>📍 Parcours (Waypoints)</h2>
-        <div class="card">
-            <div id="waypoint-list">Aucun point sélectionné</div>
-            <button class="btn-send" onclick="sendWaypoints()">🚀 Envoyer le parcours</button>
-            <button class="btn-clear" onclick="clearWaypoints()">Effacer tout</button>
-        </div>
+<div id="app">
+  <!-- ══ SIDEBAR ══ -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h1>⬡ GCS Navigation</h1>
+      <div id="conn-status">
+        <div id="conn-dot"></div>
+        <span id="conn-label">Connexion en cours…</span>
+      </div>
     </div>
 
+    <div id="sidebar-body">
+
+      <!-- TÉLÉMÉTRIE IMU -->
+      <div class="section">
+        <div class="section-head">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          Accélération
+        </div>
+        <div class="section-body">
+          <div class="tele-grid">
+            <div class="tele-cell"><div class="tele-label">AX</div><div class="tele-val" id="ax">—</div></div>
+            <div class="tele-cell"><div class="tele-label">AY</div><div class="tele-val" id="ay">—</div></div>
+            <div class="tele-cell"><div class="tele-label">AZ</div><div class="tele-val" id="az">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- POSITION GPS -->
+      <div class="section">
+        <div class="section-head">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+          Position GPS
+        </div>
+        <div class="section-body">
+          <div class="gps-row">
+            <div class="gps-tag"><span class="gps-badge raw">Brut</span><span class="gps-coords" id="gps-raw">—</span></div>
+            <div class="gps-tag"><span class="gps-badge kal">Kalman</span><span class="gps-coords" id="gps-kal">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- KALMAN -->
+      <div class="section">
+        <div class="section-head">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Filtre Kalman
+        </div>
+        <div class="section-body">
+          <div class="param-row">
+            <div class="param-label">Q — Bruit process <span id="q-display">0.0010</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="q-slider" min="0" max="0.01" step="0.0001" value="0.001" oninput="syncParam('q')">
+              <input type="number" class="small" id="q-num" step="0.0001" value="0.001" oninput="syncParam('q-num')">
+            </div>
+          </div>
+          <div class="param-row">
+            <div class="param-label">R — Bruit capteur <span id="r-display">0.0100</span></div>
+            <div class="slider-wrap">
+              <input type="range" id="r-slider" min="0" max="0.1" step="0.001" value="0.01" oninput="syncParam('r')">
+              <input type="number" class="small" id="r-num" step="0.001" value="0.01" oninput="syncParam('r-num')">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="sendKalman()">Appliquer</button>
+        </div>
+      </div>
+
+      <!-- NAVIGATION STATUS -->
+      <div class="section">
+        <div class="section-head">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+          Navigation
+        </div>
+        <div class="section-body">
+          <div class="nav-grid">
+            <div class="nav-cell"><div class="nav-cell-label">Waypoint</div><div class="nav-cell-val" id="nav-wp">—</div></div>
+            <div class="nav-cell"><div class="nav-cell-label">Distance</div><div class="nav-cell-val" id="nav-dist">—</div></div>
+            <div class="nav-cell"><div class="nav-cell-label">Cap cible</div><div class="nav-cell-val" id="nav-bear">—</div></div>
+            <div class="nav-cell"><div class="nav-cell-label">Vitesse cible</div><div class="nav-cell-val" id="nav-spd">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- WAYPOINTS -->
+      <div class="section">
+        <div class="section-head">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          Waypoints
+          <span id="wp-count" style="margin-left:auto;font-family:var(--mono);color:var(--accent);">0</span>
+        </div>
+        <div class="section-body">
+          <div id="wp-list"><div class="wp-empty">Cliquez sur la carte pour ajouter des points</div></div>
+          <div id="send-bar"><div id="send-bar-fill"></div></div>
+          <button class="btn btn-primary" id="btn-send" onclick="sendWaypoints()">Envoyer le parcours</button>
+          <button class="btn btn-danger" onclick="clearWaypoints()">Effacer tout</button>
+        </div>
+      </div>
+
+    </div><!-- /sidebar-body -->
+  </div><!-- /sidebar -->
+
+  <!-- ══ MAP ══ -->
+  <div id="map-wrap">
     <div id="map"></div>
+    <div class="map-badge" id="map-hint">Cliquez pour ajouter un waypoint — <span>vitesse demandée à chaque point</span></div>
+  </div>
+</div>
 
-    <script>
-        var map = L.map('map').setView([46.6, 2.4], 6);
-        var waypoints = []; // Tableau de stockage des points
-        var waypointMarkers = [];
-        var polyline = L.polyline([], {color: 'red', dashArray: '5, 5'}).addTo(map);
-        var droneMarker = L.marker([0, 0]).addTo(map);
-        
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+<!-- ══ SPEED POPUP ══ -->
+<div id="speed-popup">
+  <h3>Vitesse au waypoint</h3>
+  <div class="coords-preview" id="popup-coords"></div>
+  <div class="speed-input-wrap">
+    <input type="number" id="speed-input" min="0" max="10" step="0.1" value="1.0" placeholder="1.0">
+    <span class="speed-unit">m/s</span>
+  </div>
+  <div class="popup-btns">
+    <button class="btn btn-danger" onclick="cancelPoint()">Annuler</button>
+    <button class="btn btn-primary" onclick="confirmPoint()">Ajouter</button>
+  </div>
+</div>
 
-        // CONFIG MQTT
-        var brokerUrl = "21f2976a53f440f5b67745ca8e8a14b9.s1.eu.hivemq.cloud";
-        var client = new Paho.MQTT.Client("wss://" + brokerUrl + ":8884/mqtt", "WebClient_" + Math.random());
+<script>
+// ═══════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════
+const BROKER   = "21f2976a53f440f5b67745ca8e8a14b9.s1.eu.hivemq.cloud";
+const MQTT_USR = "esp32";
+const MQTT_PWD = "Esp32_Gps";
+const TOPIC_STATUS  = "esp32/gps/status/";
+const TOPIC_CMD     = "esp32/gps/command";
+const TOPIC_NAV     = "esp32/gps/nav/";
+const DEFAULT_SPEED = 1.0; // m/s
 
-        client.onMessageArrived = function(message) {
-            var value = parseFloat(message.payloadString);
-            if (message.destinationName.endsWith("LAT")) droneMarker.setLatLng([value, droneMarker.getLatLng().lng]);
-            if (message.destinationName.endsWith("LNG")) droneMarker.setLatLng([droneMarker.getLatLng().lat, value]);
-        };
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+let waypoints = [];         // { lat, lng, speed }
+let pendingPoint = null;    // point en attente de confirmation vitesse
+let mqttClient = null;
+let dronePos = { lat: 0, lng: 0 };
+let mapCentered = false;
 
-        client.connect({
-            userName: "esp32", password: "Esp32_Gps", useSSL: true,
-            onSuccess: function() {
-                document.getElementById('status').innerHTML = "🌐 Connecté au Broker";
-                client.subscribe("esp32/gps/status/LAT");
-                client.subscribe("esp32/gps/status/LNG");
-            }
-        });
+// ═══════════════════════════════════════════════
+//  MAP SETUP
+// ═══════════════════════════════════════════════
+const map = L.map('map', { zoomControl: false }).setView([43.115, 6.124], 16);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '© OSM'
+}).addTo(map);
 
-        // AJOUTER UN POINT AU CLIC
-        map.on('click', function(e) {
-            var lat = e.latlng.lat;
-            var lng = e.latlng.lng;
-            
-            waypoints.push({lat: lat, lng: lng});
-            
-            // Ajouter un marqueur visuel
-            var m = L.circleMarker([lat, lng], {color: 'yellow', radius: 5}).addTo(map);
-            waypointMarkers.push(m);
-            
-            updateUI();
-        });
+// Polylines
+const polyRoute = L.polyline([], { color: '#00d4ff', weight: 2, dashArray: '8 6', opacity: 0.7 }).addTo(map);
+const polyToFirst = L.polyline([], { color: '#00e676', weight: 1.5, dashArray: '4 4', opacity: 0.5 }).addTo(map);
+const polyRawTrack = L.polyline([], { color: '#ffb300', weight: 1, opacity: 0.5 }).addTo(map);
+const polyKalTrack = L.polyline([], { color: '#00d4ff', weight: 1.5, opacity: 0.8 }).addTo(map);
 
-        function updateUI() {
-            var listDiv = document.getElementById('waypoint-list');
-            listDiv.innerHTML = waypoints.map((w, i) => `Point ${i+1}: ${w.lat.toFixed(4)}`).join('<br>');
-            polyline.setLatLngs(waypoints.map(w => [w.lat, w.lng]));
-        }
+// Drone marker
+const droneIcon = L.divIcon({
+  className: '',
+  html: `<div style="width:14px;height:14px;background:#00d4ff;border-radius:50%;border:2px solid #0a0e13;box-shadow:0 0 8px #00d4ff88;"></div>`,
+  iconSize: [14,14], iconAnchor: [7,7]
+});
+const droneMarker = L.marker([43.115, 6.124], { icon: droneIcon, zIndexOffset: 1000 }).addTo(map);
 
-        // ENVOYER LES PARAMÈTRES (KALMAN)
-        function sendParam(key, inputId) {
-            var val = document.getElementById(inputId).value;
-            var msg = new Paho.MQTT.Message(key + "=" + val);
-            msg.destinationName = "esp32/gps/command";
-            client.send(msg);
-            alert("Envoyé : " + key + "=" + val);
-        }
+let waypointMarkers = [];
+let rawTrackPoints = [];
+let kalTrackPoints = [];
 
-        // ENVOYER LES WAYPOINTS
-        function sendWaypoints() {
-            if (waypoints.length === 0) return;
-            
-            // On peut envoyer les points un par un ou dans une boucle
-            // Ici, on envoie chaque point avec un index pour ta DataBase
-            waypoints.forEach((w, index) => {
-                var msgLat = new Paho.MQTT.Message(`WPLAT${index}=${w.lat.toFixed(8)}`);
-                var msgLng = new Paho.MQTT.Message(`WPLNG${index}=${w.lng.toFixed(8)}`);
-                msgLat.destinationName = "esp32/gps/command";
-                msgLng.destinationName = "esp32/gps/command";
-                client.send(msgLat);
-                client.send(msgLng);
-            });
-            
-            // Envoyer le nombre total de points pour que l'ESP sache combien lire
-            var msgCount = new Paho.MQTT.Message(`WPCNT=${waypoints.length}`);
-            msgCount.destinationName = "esp32/gps/command";
-            client.send(msgCount);
-            
-            alert("Parcours envoyé (" + waypoints.length + " points)");
-        }
+// ─── MAP CLICK → POPUP ───
+map.on('click', function(e) {
+  pendingPoint = { lat: e.latlng.lat, lng: e.latlng.lng };
+  document.getElementById('popup-coords').textContent =
+    `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+  document.getElementById('speed-input').value = DEFAULT_SPEED;
+  showPopup(e.originalEvent.clientX, e.originalEvent.clientY);
+});
 
-        function clearWaypoints() {
-            waypoints = [];
-            waypointMarkers.forEach(m => map.removeLayer(m));
-            waypointMarkers = [];
-            updateUI();
-        }
-    </script>
+function showPopup(x, y) {
+  const popup = document.getElementById('speed-popup');
+  popup.style.display = 'block';
+  const pw = popup.offsetWidth  || 220;
+  const ph = popup.offsetHeight || 160;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  popup.style.left = Math.min(x + 12, vw - pw - 16) + 'px';
+  popup.style.top  = Math.min(y + 12, vh - ph - 16) + 'px';
+  setTimeout(() => document.getElementById('speed-input').focus(), 50);
+}
+
+document.getElementById('speed-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') confirmPoint();
+  if (e.key === 'Escape') cancelPoint();
+});
+
+function confirmPoint() {
+  if (!pendingPoint) return;
+  const speed = parseFloat(document.getElementById('speed-input').value) || DEFAULT_SPEED;
+  waypoints.push({ ...pendingPoint, speed });
+  pendingPoint = null;
+  document.getElementById('speed-popup').style.display = 'none';
+  renderWaypoints();
+}
+
+function cancelPoint() {
+  pendingPoint = null;
+  document.getElementById('speed-popup').style.display = 'none';
+}
+
+// ─── RENDER WAYPOINTS ───
+function renderWaypoints() {
+  // Clear old markers
+  waypointMarkers.forEach(m => map.removeLayer(m));
+  waypointMarkers = [];
+
+  waypoints.forEach((wp, i) => {
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="background:${i===0?'#00e676':'#00d4ff'};color:#0a0e13;font-weight:700;font-size:10px;padding:2px 6px;border-radius:3px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.5)">${i+1} · ${wp.speed}m/s</div>`,
+      iconAnchor: [0, 10]
+    });
+    const m = L.marker([wp.lat, wp.lng], { icon }).addTo(map);
+    waypointMarkers.push(m);
+  });
+
+  // Update route polylines
+  const latlngs = waypoints.map(w => [w.lat, w.lng]);
+  polyRoute.setLatLngs(latlngs);
+
+  if (waypoints.length > 0 && dronePos.lat !== 0) {
+    polyToFirst.setLatLngs([[dronePos.lat, dronePos.lng], [waypoints[0].lat, waypoints[0].lng]]);
+  } else {
+    polyToFirst.setLatLngs([]);
+  }
+
+  renderWpList();
+}
+
+function renderWpList() {
+  const list = document.getElementById('wp-list');
+  document.getElementById('wp-count').textContent = waypoints.length;
+
+  if (waypoints.length === 0) {
+    list.innerHTML = '<div class="wp-empty">Cliquez sur la carte pour ajouter des points</div>';
+    return;
+  }
+
+  list.innerHTML = waypoints.map((wp, i) => `
+    <div class="wp-item" id="wpi-${i}">
+      <span class="wp-num">${String(i+1).padStart(2,'0')}</span>
+      <span class="wp-coords">${wp.lat.toFixed(5)}, ${wp.lng.toFixed(5)}</span>
+      <span class="wp-speed">${wp.speed}m/s</span>
+      <button class="wp-del" onclick="removeWp(${i})" title="Supprimer">×</button>
+    </div>
+  `).join('');
+}
+
+function removeWp(idx) {
+  waypoints.splice(idx, 1);
+  renderWaypoints();
+}
+
+function clearWaypoints() {
+  waypoints = [];
+  renderWaypoints();
+}
+
+// ═══════════════════════════════════════════════
+//  MQTT
+// ═══════════════════════════════════════════════
+function connectMqtt() {
+  mqttClient = new Paho.MQTT.Client(
+    "wss://" + BROKER + ":8884/mqtt",
+    "WebGCS_" + Math.floor(Math.random()*99999)
+  );
+
+  mqttClient.onConnectionLost = function(r) {
+    setConnStatus(false, "Déconnecté — reconnexion…");
+    setTimeout(connectMqtt, 3000);
+  };
+
+  mqttClient.onMessageArrived = onMessage;
+
+  mqttClient.connect({
+    userName: MQTT_USR,
+    password: MQTT_PWD,
+    useSSL: true,
+    keepAliveInterval: 30,
+    onSuccess: function() {
+      setConnStatus(true, "Connecté au broker");
+      mqttClient.subscribe(TOPIC_STATUS + "#");
+      mqttClient.subscribe(TOPIC_NAV + "#");
+    },
+    onFailure: function(e) {
+      setConnStatus(false, "Échec : " + e.errorMessage);
+      setTimeout(connectMqtt, 4000);
+    }
+  });
+}
+
+function setConnStatus(ok, msg) {
+  document.getElementById('conn-dot').className = ok ? 'ok' : 'err';
+  document.getElementById('conn-label').textContent = msg;
+}
+
+let rawLat = 0, rawLng = 0, kalLat = 0, kalLng = 0;
+
+function onMessage(msg) {
+  const topic = msg.destinationName;
+  const val   = parseFloat(msg.payloadString);
+  const key   = topic.split('/').pop();
+
+  switch(key) {
+    case 'AX': document.getElementById('ax').textContent = val.toFixed(3); break;
+    case 'AY': document.getElementById('ay').textContent = val.toFixed(3); break;
+    case 'AZ': document.getElementById('az').textContent = val.toFixed(3); break;
+
+    case 'LAT': rawLat = val; updateRawDisplay(); break;
+    case 'LNG': rawLng = val; updateRawDisplay(); updateDrone(rawLat, rawLng, false); break;
+
+    case 'FLAT': kalLat = val; updateKalDisplay(); break;
+    case 'FLNG': kalLng = val; updateKalDisplay(); updateDrone(kalLat, kalLng, true); break;
+
+    // Nav telemetry (topics optionnels, à publier depuis l'ESP si besoin)
+    case 'NAVWP':   document.getElementById('nav-wp').textContent   = val; break;
+    case 'NAVDIST': document.getElementById('nav-dist').textContent = val.toFixed(1) + ' m'; break;
+    case 'NAVBEAR': document.getElementById('nav-bear').textContent = val.toFixed(1) + '°'; break;
+    case 'NAVSPD':  document.getElementById('nav-spd').textContent  = val.toFixed(2) + ' m/s'; break;
+  }
+}
+
+function updateRawDisplay() {
+  document.getElementById('gps-raw').textContent =
+    rawLat.toFixed(6) + ', ' + rawLng.toFixed(6);
+}
+
+function updateKalDisplay() {
+  document.getElementById('gps-kal').textContent =
+    kalLat.toFixed(6) + ', ' + kalLng.toFixed(6);
+}
+
+function updateDrone(lat, lng, isKalman) {
+  if (lat === 0 && lng === 0) return;
+  dronePos = { lat, lng };
+  droneMarker.setLatLng([lat, lng]);
+
+  if (isKalman) {
+    kalTrackPoints.push([lat, lng]);
+    if (kalTrackPoints.length > 500) kalTrackPoints.shift();
+    polyKalTrack.setLatLngs(kalTrackPoints);
+  } else {
+    rawTrackPoints.push([lat, lng]);
+    if (rawTrackPoints.length > 500) rawTrackPoints.shift();
+    polyRawTrack.setLatLngs(rawTrackPoints);
+  }
+
+  if (!mapCentered) { map.setView([lat, lng], 18); mapCentered = true; }
+
+  if (waypoints.length > 0) {
+    polyToFirst.setLatLngs([[lat, lng], [waypoints[0].lat, waypoints[0].lng]]);
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  KALMAN PARAMS
+// ═══════════════════════════════════════════════
+function syncParam(src) {
+  if (src === 'q') {
+    const v = document.getElementById('q-slider').value;
+    document.getElementById('q-num').value = parseFloat(v).toFixed(4);
+    document.getElementById('q-display').textContent = parseFloat(v).toFixed(4);
+  } else if (src === 'r') {
+    const v = document.getElementById('r-slider').value;
+    document.getElementById('r-num').value = parseFloat(v).toFixed(4);
+    document.getElementById('r-display').textContent = parseFloat(v).toFixed(4);
+  } else if (src === 'q-num') {
+    const v = document.getElementById('q-num').value;
+    document.getElementById('q-slider').value = v;
+    document.getElementById('q-display').textContent = parseFloat(v).toFixed(4);
+  } else if (src === 'r-num') {
+    const v = document.getElementById('r-num').value;
+    document.getElementById('r-slider').value = v;
+    document.getElementById('r-display').textContent = parseFloat(v).toFixed(4);
+  }
+}
+
+function sendKalman() {
+  const q = document.getElementById('q-num').value;
+  const r = document.getElementById('r-num').value;
+  publish(TOPIC_CMD, `KQ=${q}`);
+  setTimeout(() => publish(TOPIC_CMD, `KR=${r}`), 150);
+}
+
+// ═══════════════════════════════════════════════
+//  SEND WAYPOINTS
+// ═══════════════════════════════════════════════
+async function sendWaypoints() {
+  if (waypoints.length === 0) return;
+  if (!mqttClient || !mqttClient.isConnected()) {
+    alert("Non connecté au broker MQTT"); return;
+  }
+
+  const btn = document.getElementById('btn-send');
+  const bar = document.getElementById('send-bar');
+  const fill = document.getElementById('send-bar-fill');
+  btn.disabled = true;
+  btn.textContent = "Envoi en cours…";
+  bar.style.display = 'block';
+  fill.style.width = '0%';
+
+  const total = waypoints.length * 3; // LAT + LNG + SPD par point
+  let sent = 0;
+
+  for (let i = 0; i < waypoints.length; i++) {
+    const wp = waypoints[i];
+    publish(TOPIC_CMD, `WPLAT${i}=${wp.lat.toFixed(8)}`);
+    await delay(80);
+    publish(TOPIC_CMD, `WPLNG${i}=${wp.lng.toFixed(8)}`);
+    await delay(80);
+    // Nouveau canal : vitesse par segment (vitesse entre WP[i] et WP[i+1])
+    publish(TOPIC_CMD, `WPSPD${i}=${wp.speed.toFixed(2)}`);
+    await delay(80);
+    sent += 3;
+    fill.style.width = Math.round((sent / total) * 90) + '%';
+    // Highlight item actif
+    const el = document.getElementById(`wpi-${i}`);
+    if (el) el.classList.add('active');
+  }
+
+  await delay(150);
+  publish(TOPIC_CMD, `WPCNT=${waypoints.length}`);
+  await delay(100);
+  fill.style.width = '100%';
+
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = "Envoyer le parcours";
+    bar.style.display = 'none';
+    fill.style.width = '0%';
+    document.querySelectorAll('.wp-item').forEach(el => el.classList.remove('active'));
+  }, 800);
+}
+
+function publish(topic, payload) {
+  if (!mqttClient || !mqttClient.isConnected()) return;
+  const msg = new Paho.MQTT.Message(payload);
+  msg.destinationName = topic;
+  mqttClient.send(msg);
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ═══════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════
+connectMqtt();
+</script>
 </body>
 </html>
