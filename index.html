@@ -172,7 +172,12 @@
         iconSize: [13,13], iconAnchor: [6,6]
     });
     var droneMarker = L.marker([43.115, 6.124], { icon: droneIcon, zIndexOffset: 1000 }).addTo(map);
-
+    var rawIcon = L.divIcon({
+    className: '',
+    html: "<div style='background:#e67e22;width:10px;height:10px;border-radius:50%;border:2px solid white;opacity:0.8'></div>",
+    iconSize: [10,10], iconAnchor: [5,5]
+});
+var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).addTo(map);
     // ── MAP CLICK ──
     map.on('click', function(e) {
         pendingPoint = { lat: e.latlng.lat, lng: e.latlng.lng };
