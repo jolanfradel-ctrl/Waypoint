@@ -164,6 +164,7 @@
 
     // Polylines
     var polyRoute    = L.polyline([], { color: '#e67e22', weight: 2.5, dashArray: '8 6' }).addTo(map);
+    var polyToFirst  = L.polyline([], { color: '#2ecc71', weight: 1.5, dashArray: '5 5' }).addTo(map);
     var polyRawTrack = L.polyline([], { color: '#e67e22', weight: 1.5, opacity: 0.5 }).addTo(map);
     var polyKalTrack = L.polyline([], { color: '#2980b9', weight: 2,   opacity: 0.8 }).addTo(map);
 
@@ -298,20 +299,19 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
         document.getElementById('gps-kal').textContent = kalLat.toFixed(6) + ',  ' + kalLng.toFixed(6);
     }
 
-    function updateDrone(lat, lng, isKal) {
-        if (lat === 0 && lng === 0) return;
-        droneMarker.setLatLng([lat, lng]);
-        if (!mapCentered) { map.setView([lat, lng], 18); mapCentered = true; }
-        if (isKal) {
-            kalTrackPts.push([lat, lng]);
-            if (kalTrackPts.length > 500) kalTrackPts.shift();
-            polyKalTrack.setLatLngs(kalTrackPts);
-        } else {
-            rawTrackPts.push([lat, lng]);
-            if (rawTrackPts.length > 500) rawTrackPts.shift();
-            polyRawTrack.setLatLngs(rawTrackPts);
-        }
+function updateDrone(lat, lng, isKal) {
+    if (lat === 0 && lng === 0) return;
+    droneMarker.setLatLng([lat, lng]);
+    if (!mapCentered) { map.setView([lat, lng], 18); mapCentered = true; }
+
+    // Ligne drone → premier waypoint
+    if (waypoints.length > 0) {
+        polyToFirst.setLatLngs([[lat, lng], [waypoints[0].lat, waypoints[0].lng]]);
+    } else {
+        polyToFirst.setLatLngs([]);
     }
+
+    if (isKal) {
 
     function connectMqtt() {
         client.connect({
