@@ -276,7 +276,7 @@
         if (key === 'AZ') document.getElementById('az').textContent = val.toFixed(3);
 
         if (key === 'LAT') { rawLat = val; updateGpsDisplay(); }
-        if (key === 'LNG') { rawLng = val; updateGpsDisplay(); updateDrone(rawLat, rawLng, false); }
+        if (key === 'LNG') { rawLng = val; updateGpsDisplay(); rawMarker.setLatLng([rawLat, rawLng]); }
         if (key === 'FLAT') { kalLat = val; updateGpsDisplay(); }
         if (key === 'FLNG') { kalLng = val; updateGpsDisplay(); updateDrone(kalLat, kalLng, true); }
     };
