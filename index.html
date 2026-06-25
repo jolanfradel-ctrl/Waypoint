@@ -304,7 +304,6 @@ function updateDrone(lat, lng, isKal) {
     droneMarker.setLatLng([lat, lng]);
     if (!mapCentered) { map.setView([lat, lng], 18); mapCentered = true; }
 
-    // Ligne drone → premier waypoint
     if (waypoints.length > 0) {
         polyToFirst.setLatLngs([[lat, lng], [waypoints[0].lat, waypoints[0].lng]]);
     } else {
@@ -312,6 +311,15 @@ function updateDrone(lat, lng, isKal) {
     }
 
     if (isKal) {
+        kalTrackPts.push([lat, lng]);
+        if (kalTrackPts.length > 500) kalTrackPts.shift();
+        polyKalTrack.setLatLngs(kalTrackPts);
+    } else {
+        rawTrackPts.push([lat, lng]);
+        if (rawTrackPts.length > 500) rawTrackPts.shift();
+        polyRawTrack.setLatLngs(rawTrackPts);
+    }
+}
 
     function connectMqtt() {
         client.connect({
