@@ -319,7 +319,7 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
         if (key === 'AY') document.getElementById('ay').textContent = val.toFixed(3);
         if (key === 'AZ') document.getElementById('az').textContent = val.toFixed(3);
 
-        if (key === 'ROLL') updateRoll(val);
+        if (key === 'Roll') updateRoll(val);
 
         if (key === 'LAT') { rawLat = val; updateGpsDisplay(); }
         if (key === 'LNG') { rawLng = val; updateGpsDisplay(); rawMarker.setLatLng([rawLat, rawLng]); }
