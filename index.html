@@ -7,6 +7,11 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
     <style>
+        /* Horizon artificiel (roll) */
+        #roll-card { display: flex; flex-direction: column; align-items: center; }
+        #roll-svg-wrap { position: relative; width: 160px; height: 160px; margin: 8px auto 4px; }
+        #roll-val { font-family: monospace; color: #f39c12; font-size: 0.95rem; margin-top: 4px; }
+        
         body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f7f9; }
         #controls { width: 350px; padding: 20px; background: #2c3e50; color: white; box-shadow: 4px 0 10px rgba(0,0,0,0.1); z-index: 1000; overflow-y: auto; }
         #map { flex-grow: 1; height: 100%; }
