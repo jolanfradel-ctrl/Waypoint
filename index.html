@@ -82,7 +82,7 @@
     <div class="card">
         <h3>🚀 Accélération (m/s²)</h3>
         <div class="data-grid">
-            <div><div class="data-label">X</div><div id="ax" class="data-val">0.00</div></div>
+            <div><div class="data-label">X</div><div id="Ro" class="data-val">0.00</div></div>
             <div><div class="data-label">Y</div><div id="ay" class="data-val">0.00</div></div>
             <div><div class="data-label">Z</div><div id="az" class="data-val">0.00</div></div>
         </div>
@@ -285,6 +285,10 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
         if (key === 'AX') document.getElementById('ax').textContent = val.toFixed(3);
         if (key === 'AY') document.getElementById('ay').textContent = val.toFixed(3);
         if (key === 'AZ') document.getElementById('az').textContent = val.toFixed(3);
+
+        if (key === 'Pitch') document.getElementById('Pi').textContent = val.toFixed(3);
+        if (key === 'Roll') document.getElementById('Ro').textContent = val.toFixed(3);
+        if (key === 'Yaw') document.getElementById('Ya').textContent = val.toFixed(3);
 
         if (key === 'LAT') { rawLat = val; updateGpsDisplay(); }
         if (key === 'LNG') { rawLng = val; updateGpsDisplay(); rawMarker.setLatLng([rawLat, rawLng]); }
