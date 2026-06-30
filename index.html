@@ -96,7 +96,35 @@
             <span id="spd" style="font-family:monospace; font-size:1rem; color:#f39c12; font-weight:bold;">— m/s</span>
         </div>
     </div>
-    
+
+    <!-- HORIZON / ROLL -->
+<div class="card" id="roll-card">
+    <h3>🎯 Roll (Horizon)</h3>
+    <div id="roll-svg-wrap">
+        <svg id="roll-svg" viewBox="0 0 160 160" width="160" height="160">
+            <defs>
+                <clipPath id="horizonClip">
+                    <circle cx="80" cy="80" r="70"/>
+                </clipPath>
+            </defs>
+            <!-- groupe qui tourne avec le roll -->
+            <g id="roll-rotate" clip-path="url(#horizonClip)" transform="rotate(0 80 80)">
+                <rect x="-50" y="-150" width="260" height="230" fill="#3498db"/>
+                <rect x="-50" y="80" width="260" height="230" fill="#8d5524"/>
+                <line x1="-50" y1="80" x2="210" y2="80" stroke="#fff" stroke-width="2"/>
+            </g>
+            <!-- cercle fixe -->
+            <circle cx="80" cy="80" r="70" fill="none" stroke="#1a252f" stroke-width="4"/>
+            <!-- repère fixe (avion) -->
+            <line x1="40" y1="80" x2="65" y2="80" stroke="#f1c40f" stroke-width="3"/>
+            <line x1="95" y1="80" x2="120" y2="80" stroke="#f1c40f" stroke-width="3"/>
+            <polygon points="80,72 75,84 85,84" fill="#f1c40f"/>
+            <!-- triangle fixe en haut (référence 0°) -->
+            <polygon points="80,8 74,18 86,18" fill="#ecf0f1"/>
+        </svg>
+    </div>
+    <div id="roll-val">0.0°</div>
+</div>
 
     <!-- POSITION GPS -->
     <div class="card">
@@ -291,7 +319,7 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
         if (key === 'AY') document.getElementById('ay').textContent = val.toFixed(3);
         if (key === 'AZ') document.getElementById('az').textContent = val.toFixed(3);
 
-
+        if (key === 'ROLL') updateRoll(val);
 
         if (key === 'LAT') { rawLat = val; updateGpsDisplay(); }
         if (key === 'LNG') { rawLng = val; updateGpsDisplay(); rawMarker.setLatLng([rawLat, rawLng]); }
@@ -392,7 +420,13 @@ function updateDrone(lat, lng, isKal) {
     }
 
     function delay(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
-
+    
+    function updateRoll(rollDeg) {
+    document.getElementById('roll-rotate').setAttribute(
+        'transform', 'rotate(' + (-rollDeg) + ' 80 80)'
+    );
+    document.getElementById('roll-val').textContent = rollDeg.toFixed(1) + '°';
+}
     // ── BOOT ──
     connectMqtt();
 </script>
