@@ -302,7 +302,7 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
     }
     
     function sendOTA() {
-        var msg = new Paho.MQTT.Message('OTA = https://github.com/jolanfradel-ctrl/ota/releases/latest/download/firmware.bin');
+        var msg = new Paho.MQTT.Message('OTA=https://github.com/jolanfradel-ctrl/ota/releases/latest/download/firmware.bin');
         msg.destinationName = topicCmd;
         client.send(msg);
 }
