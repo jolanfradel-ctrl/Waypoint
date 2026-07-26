@@ -161,6 +161,8 @@
         <div id="send-progress">Envoi en cours…</div>
         <button class="btn-send" id="btn-send" onclick="sendWaypoints()">🚀 Envoyer le parcours</button>
         <button class="btn-clear" onclick="clearWaypoints()">Effacer tout</button>
+        <button class="btn-send" onclick="sendOTA()">🔄 Update firmware</button>
+
     </div>
 </div>
 
@@ -298,6 +300,12 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
         waypoints = [];
         renderWaypoints();
     }
+    
+    function sendOTA() {
+        var msg = new Paho.MQTT.Message('OTA=https://github.com/tonuser/tonrepo/releases/download/v2/firmware.bin');
+        msg.destinationName = topicCmd;
+        client.send(msg);
+}
 
     // ── MQTT ──
     var client = new Paho.MQTT.Client(
