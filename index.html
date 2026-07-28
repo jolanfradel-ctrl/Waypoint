@@ -345,7 +345,7 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
         var val = parseFloat(rawPayload);
         
         // Maj manuelle du cap depuis l'ESP s'il l'envoi explicitement
-        if (key === 'CAP' || key === 'Cap' || key === 'HDG' || key === 'Yaw' || key === 'YAW' || key === 'Heading') {
+        if (key === 'CAP' || key === 'Cap' ) {
             hasMqttHeading = true;
             currentHeading = val;
             var el = document.getElementById('drone-arrow-container');
