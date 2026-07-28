@@ -212,14 +212,19 @@
 
     var rawTrackPts = [], kalTrackPts = [];
     var rawLat = 0, rawLng = 0, kalLat = 0, kalLng = 0;
+    
+    // Globals pour le Cap
+    var currentHeading = 0;
+    var hasMqttHeading = false;
 
-    // Drone marker
+    // Drone marker avec flèche directionnelle
     var droneIcon = L.divIcon({
         className: '',
-        html: "<div style='background:#3498db;width:13px;height:13px;border-radius:50%;border:2px solid white;box-shadow:0 0 6px #3498db'></div>",
-        iconSize: [13,13], iconAnchor: [6,6]
+        html: "<div id='drone-arrow-container' style='width:17px;height:17px;transform-origin:8.5px 8.5px;transition:transform 0.2s ease-out;'><div style='position:absolute;top:-12px;left:3.5px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:12px solid #e74c3c;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));'></div><div style='background:#3498db;width:13px;height:13px;border-radius:50%;border:2px solid white;box-shadow:0 0 6px #3498db;position:absolute;top:0;left:0;'></div></div>",
+        iconSize: [17,17], iconAnchor: [8.5,8.5]
     });
     var droneMarker = L.marker([43.115, 6.124], { icon: droneIcon, zIndexOffset: 1000 }).addTo(map);
+    
     var rawIcon = L.divIcon({
     className: '',
     html: "<div style='background:#e67e22;width:10px;height:10px;border-radius:50%;border:2px solid white;opacity:0.8'></div>",
@@ -338,6 +343,14 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
 
         // Pour le reste, on convertit la charge utile en nombre
         var val = parseFloat(rawPayload);
+        
+        // Maj manuelle du cap depuis l'ESP s'il l'envoi explicitement
+        if (key === 'CAP' || key === 'Cap' || key === 'HDG' || key === 'Yaw' || key === 'YAW' || key === 'Heading') {
+            hasMqttHeading = true;
+            currentHeading = val;
+            var el = document.getElementById('drone-arrow-container');
+            if (el) el.style.transform = 'rotate(' + currentHeading + 'deg)';
+        }
 
         if (key === 'AX') document.getElementById('ax').textContent = val.toFixed(3);
         if (key === 'AY') document.getElementById('ay').textContent = val.toFixed(3);
@@ -370,6 +383,23 @@ function updateDrone(lat, lng, isKal) {
     }
 
     if (isKal) {
+        // --- Calcul dynamique du cap basé sur la trajectoire (Fallback) ---
+        if (!hasMqttHeading && kalTrackPts.length > 0) {
+            var prevPt = kalTrackPts[kalTrackPts.length - 1];
+            if (prevPt[0] !== lat || prevPt[1] !== lng) {
+                var lat1 = prevPt[0] * Math.PI / 180;
+                var lat2 = lat * Math.PI / 180;
+                var dLng = (lng - prevPt[1]) * Math.PI / 180;
+                var y = Math.sin(dLng) * Math.cos(lat2);
+                var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+                var brng = Math.atan2(y, x) * 180 / Math.PI;
+                currentHeading = (brng + 360) % 360; // Convertir en 0-360
+                
+                var el = document.getElementById('drone-arrow-container');
+                if (el) el.style.transform = 'rotate(' + currentHeading + 'deg)';
+            }
+        }
+        
         kalTrackPts.push([lat, lng]);
         if (kalTrackPts.length > 500) kalTrackPts.shift();
         polyKalTrack.setLatLngs(kalTrackPts);
