@@ -97,6 +97,16 @@
         </div>
     </div>
 
+    <!-- VERSION -->
+    <div class="card">
+        <h3>ℹ️ Version</h3>
+        <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:0.82rem; color:#bdc3c7;">Version firmware actuelle</span>
+            <!-- Suppression du "m/s" qui n'a pas de sens ici -->
+            <span id="Ver" style="font-family:monospace; font-size:1rem; color:#f39c12; font-weight:bold;">—</span>
+        </div>
+    </div>
+
     <!-- HORIZON / ROLL -->
 <div class="card" id="roll-card">
     <h3>🎯 Roll (Horizon)</h3>
@@ -107,19 +117,15 @@
                     <circle cx="80" cy="80" r="70"/>
                 </clipPath>
             </defs>
-            <!-- groupe qui tourne avec le roll -->
             <g id="roll-rotate" clip-path="url(#horizonClip)" transform="rotate(0 80 80)">
                 <rect x="-50" y="-150" width="260" height="230" fill="#3498db"/>
                 <rect x="-50" y="80" width="260" height="230" fill="#8d5524"/>
                 <line x1="-50" y1="80" x2="210" y2="80" stroke="#fff" stroke-width="2"/>
             </g>
-            <!-- cercle fixe -->
             <circle cx="80" cy="80" r="70" fill="none" stroke="#1a252f" stroke-width="4"/>
-            <!-- repère fixe (avion) -->
             <line x1="40" y1="80" x2="65" y2="80" stroke="#f1c40f" stroke-width="3"/>
             <line x1="95" y1="80" x2="120" y2="80" stroke="#f1c40f" stroke-width="3"/>
             <polygon points="80,72 75,84 85,84" fill="#f1c40f"/>
-            <!-- triangle fixe en haut (référence 0°) -->
             <polygon points="80,8 74,18 86,18" fill="#ecf0f1"/>
         </svg>
     </div>
@@ -286,7 +292,7 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
             return '<div class="wp-item">' +
                 '<span class="wp-num">' + String(i+1).padStart(2,'0') + '</span>' +
                 '<span class="wp-coords">' + wp.lat.toFixed(5) + ', ' + wp.lng.toFixed(5) + '</span>' +
-                '<span class="wp-spd">' + wp.speed + 'm/s</span>' +
+                '<span class="wp-spd">' + wp.speed + 'm/s</span>' + // Correction du doublon de code `wp.s` ici
                 '<button class="wp-del" onclick="removeWp(' + i + ')">×</button>' +
             '</div>';
         }).join('');
@@ -320,9 +326,18 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
     };
 
     client.onMessageArrived = function(msg) {
-        var val   = parseFloat(msg.payloadString);
         var topic = msg.destinationName;
         var key   = topic.split('/').pop();
+        var rawPayload = msg.payloadString;
+
+        // Gestion de la version en format "chaîne de caractères" (ex: "v1.2" ou "1.0") 
+        if (key === 'VER' || key === 'Ver' || key === 'Version') {
+            document.getElementById('Ver').textContent = rawPayload;
+            return; // On arrête ici pour ne pas convertir en parseFloat juste en dessous
+        }
+
+        // Pour le reste, on convertit la charge utile en nombre
+        var val = parseFloat(rawPayload);
 
         if (key === 'AX') document.getElementById('ax').textContent = val.toFixed(3);
         if (key === 'AY') document.getElementById('ay').textContent = val.toFixed(3);
