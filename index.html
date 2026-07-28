@@ -186,6 +186,7 @@
     var mqttUser   = "esp32";
     var mqttPass   = "Esp32_Gps";
     var topicCmd   = "esp32/gps/command";
+    var topicOta = "esp32/gps/ota";
     var topicStatus = "esp32/gps/status/";
 
     // ── MAP ──
@@ -302,8 +303,8 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
     }
     
     function sendOTA() {
-        var msg = new Paho.MQTT.Message('OTA=https://github.com/jolanfradel-ctrl/ota/blob/main/firmware.bin');
-        msg.destinationName = topicCmd;
+        var msg = new Paho.MQTT.Message('https://raw.githubusercontent.com/jolanfradel-ctrl/ota/main/firmware.bin');
+        msg.destinationName = topicOta;
         client.send(msg);
 }
 
