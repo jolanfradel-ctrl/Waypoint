@@ -76,6 +76,32 @@
         /* Track legend */
         .legend { display: flex; gap: 12px; margin-top: 8px; font-size: 0.75rem; color: #bdc3c7; }
         .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+        /* Panneau Route Info (coulissant depuis la droite) */
+        #route-panel {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 380px;
+            height: 100%;
+            background: #2c3e50;
+            box-shadow: -4px 0 15px rgba(0,0,0,0.4);
+            transition: right 0.3s ease;
+            z-index: 2000;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            color: white;
+        }
+        #route-panel.open { right: 0; }
+        #route-panel h3 { margin-top: 0; border-bottom: 1px solid #5d6d7e; padding-bottom: 8px; }
+        #route-panel table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 10px; }
+        #route-panel th, #route-panel td { padding: 6px 8px; text-align: center; border-bottom: 1px solid #3d5266; }
+        #route-panel th { background: #1a252f; color: #3498db; }
+        #route-panel td { font-family: monospace; color: #2ecc71; }
+        .route-empty { color: #7f8c8d; font-style: italic; text-align: center; padding: 20px 0; }
+        .route-close { position: absolute; top: 15px; right: 15px; background: none; border: none; color: #e74c3c; font-size: 1.3rem; cursor: pointer; width: auto; margin: 0; padding: 0 6px; }
+        .route-updated { font-size: 0.75rem; color: #7f8c8d; margin-top: 8px; text-align: right; }
     </style>
 </head>
 <body>
@@ -102,35 +128,34 @@
         <h3>ℹ️ Version</h3>
         <div style="margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
             <span style="font-size:0.82rem; color:#bdc3c7;">Version firmware actuelle</span>
-            <!-- Suppression du "m/s" qui n'a pas de sens ici -->
             <span id="Ver" style="font-family:monospace; font-size:1rem; color:#f39c12; font-weight:bold;">—</span>
         </div>
     </div>
 
     <!-- HORIZON / ROLL -->
-<div class="card" id="roll-card">
-    <h3>🎯 Roll (Horizon)</h3>
-    <div id="roll-svg-wrap">
-        <svg id="roll-svg" viewBox="0 0 160 160" width="160" height="160">
-            <defs>
-                <clipPath id="horizonClip">
-                    <circle cx="80" cy="80" r="70"/>
-                </clipPath>
-            </defs>
-            <g id="roll-rotate" clip-path="url(#horizonClip)" transform="rotate(0 80 80)">
-                <rect x="-50" y="-150" width="260" height="230" fill="#3498db"/>
-                <rect x="-50" y="80" width="260" height="230" fill="#8d5524"/>
-                <line x1="-50" y1="80" x2="210" y2="80" stroke="#fff" stroke-width="2"/>
-            </g>
-            <circle cx="80" cy="80" r="70" fill="none" stroke="#1a252f" stroke-width="4"/>
-            <line x1="40" y1="80" x2="65" y2="80" stroke="#f1c40f" stroke-width="3"/>
-            <line x1="95" y1="80" x2="120" y2="80" stroke="#f1c40f" stroke-width="3"/>
-            <polygon points="80,72 75,84 85,84" fill="#f1c40f"/>
-            <polygon points="80,8 74,18 86,18" fill="#ecf0f1"/>
-        </svg>
+    <div class="card" id="roll-card">
+        <h3>🎯 Roll (Horizon)</h3>
+        <div id="roll-svg-wrap">
+            <svg id="roll-svg" viewBox="0 0 160 160" width="160" height="160">
+                <defs>
+                    <clipPath id="horizonClip">
+                        <circle cx="80" cy="80" r="70"/>
+                    </clipPath>
+                </defs>
+                <g id="roll-rotate" clip-path="url(#horizonClip)" transform="rotate(0 80 80)">
+                    <rect x="-50" y="-150" width="260" height="230" fill="#3498db"/>
+                    <rect x="-50" y="80" width="260" height="230" fill="#8d5524"/>
+                    <line x1="-50" y1="80" x2="210" y2="80" stroke="#fff" stroke-width="2"/>
+                </g>
+                <circle cx="80" cy="80" r="70" fill="none" stroke="#1a252f" stroke-width="4"/>
+                <line x1="40" y1="80" x2="65" y2="80" stroke="#f1c40f" stroke-width="3"/>
+                <line x1="95" y1="80" x2="120" y2="80" stroke="#f1c40f" stroke-width="3"/>
+                <polygon points="80,72 75,84 85,84" fill="#f1c40f"/>
+                <polygon points="80,8 74,18 86,18" fill="#ecf0f1"/>
+            </svg>
+        </div>
+        <div id="roll-val">0.0°</div>
     </div>
-    <div id="roll-val">0.0°</div>
-</div>
 
     <!-- POSITION GPS -->
     <div class="card">
@@ -168,7 +193,7 @@
         <button class="btn-send" id="btn-send" onclick="sendWaypoints()">🚀 Envoyer le parcours</button>
         <button class="btn-clear" onclick="clearWaypoints()">Effacer tout</button>
         <button class="btn-send" onclick="sendOTA()">🔄 Update firmware</button>
-
+        <button class="btn-send" onclick="toggleRoutePanel()">📊 Voir Route Info</button>
     </div>
 </div>
 
@@ -186,14 +211,25 @@
     </div>
 </div>
 
+<!-- PANNEAU ROUTE INFO -->
+<div id="route-panel">
+    <button class="route-close" onclick="toggleRoutePanel()">×</button>
+    <h3>📊 Distances & Caps entre Waypoints</h3>
+    <div id="route-table-wrap">
+        <div class="route-empty">En attente de données…</div>
+    </div>
+    <div class="route-updated" id="route-updated"></div>
+</div>
+
 <script>
     // ── CONFIG ──
-    var brokerUrl  = "21f2976a53f440f5b67745ca8e8a14b9.s1.eu.hivemq.cloud";
-    var mqttUser   = "esp32";
-    var mqttPass   = "Esp32_Gps";
-    var topicCmd   = "esp32/gps/command";
-    var topicOta = "esp32/gps/ota";
+    var brokerUrl   = "21f2976a53f440f5b67745ca8e8a14b9.s1.eu.hivemq.cloud";
+    var mqttUser    = "esp32";
+    var mqttPass    = "Esp32_Gps";
+    var topicCmd    = "esp32/gps/command";
+    var topicOta    = "esp32/gps/ota";
     var topicStatus = "esp32/gps/status/";
+    var topicRouteInfo = "esp32/gps/route_info";
 
     // ── MAP ──
     var map = L.map('map').setView([43.115, 6.124], 17);
@@ -212,7 +248,7 @@
 
     var rawTrackPts = [], kalTrackPts = [];
     var rawLat = 0, rawLng = 0, kalLat = 0, kalLng = 0;
-    
+
     // Globals pour le Cap
     var currentHeading = 0;
     var hasMqttHeading = false;
@@ -224,13 +260,14 @@
         iconSize: [17,17], iconAnchor: [8.5,8.5]
     });
     var droneMarker = L.marker([43.115, 6.124], { icon: droneIcon, zIndexOffset: 1000 }).addTo(map);
-    
+
     var rawIcon = L.divIcon({
-    className: '',
-    html: "<div style='background:#e67e22;width:10px;height:10px;border-radius:50%;border:2px solid white;opacity:0.8'></div>",
-    iconSize: [10,10], iconAnchor: [5,5]
-});
-var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).addTo(map);
+        className: '',
+        html: "<div style='background:#e67e22;width:10px;height:10px;border-radius:50%;border:2px solid white;opacity:0.8'></div>",
+        iconSize: [10,10], iconAnchor: [5,5]
+    });
+    var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).addTo(map);
+
     // ── MAP CLICK ──
     map.on('click', function(e) {
         pendingPoint = { lat: e.latlng.lat, lng: e.latlng.lng };
@@ -297,7 +334,7 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
             return '<div class="wp-item">' +
                 '<span class="wp-num">' + String(i+1).padStart(2,'0') + '</span>' +
                 '<span class="wp-coords">' + wp.lat.toFixed(5) + ', ' + wp.lng.toFixed(5) + '</span>' +
-                '<span class="wp-spd">' + wp.speed + 'm/s</span>' + // Correction du doublon de code `wp.s` ici
+                '<span class="wp-spd">' + wp.speed + 'm/s</span>' +
                 '<button class="wp-del" onclick="removeWp(' + i + ')">×</button>' +
             '</div>';
         }).join('');
@@ -312,12 +349,43 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
         waypoints = [];
         renderWaypoints();
     }
-    
+
     function sendOTA() {
         var msg = new Paho.MQTT.Message('https://raw.githubusercontent.com/jolanfradel-ctrl/ota/main/firmware.bin');
         msg.destinationName = topicOta;
         client.send(msg);
-}
+    }
+
+    // ── ROUTE INFO PANEL ──
+    function toggleRoutePanel() {
+        document.getElementById('route-panel').classList.toggle('open');
+    }
+
+    function renderRouteTable(jsonStr) {
+        var wrap = document.getElementById('route-table-wrap');
+        try {
+            var data = JSON.parse(jsonStr);
+            if (!Array.isArray(data) || data.length === 0) {
+                wrap.innerHTML = '<div class="route-empty">Aucun segment reçu</div>';
+                return;
+            }
+            var html = '<table><tr><th>Segment</th><th>Distance (m)</th><th>Cap (°)</th></tr>';
+            data.forEach(function(seg) {
+                html += '<tr><td>' + seg.seg + ' → ' + (seg.seg + 1) + '</td>' +
+                        '<td>' + seg.d.toFixed(2) + '</td>' +
+                        '<td>' + seg.b.toFixed(2) + '</td></tr>';
+            });
+            html += '</table>';
+            wrap.innerHTML = html;
+            document.getElementById('route-updated').textContent =
+                'Mis à jour : ' + new Date().toLocaleTimeString();
+
+            document.getElementById('route-panel').classList.add('open');
+        } catch (e) {
+            wrap.innerHTML = '<div class="route-empty">Erreur de parsing JSON</div>';
+            console.error('Route info parse error:', e, jsonStr);
+        }
+    }
 
     // ── MQTT ──
     var client = new Paho.MQTT.Client(
@@ -332,19 +400,23 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
 
     client.onMessageArrived = function(msg) {
         var topic = msg.destinationName;
+
+        if (topic === topicRouteInfo) {
+            renderRouteTable(msg.payloadString);
+            return;
+        }
+
         var key   = topic.split('/').pop();
         var rawPayload = msg.payloadString;
 
-        // Gestion de la version en format "chaîne de caractères" (ex: "v1.2" ou "1.0") 
+        // Gestion de la version en format "chaîne de caractères" (ex: "v1.2" ou "1.0")
         if (key === 'VER' || key === 'Ver' || key === 'Version') {
             document.getElementById('Ver').textContent = rawPayload;
-            return; // On arrête ici pour ne pas convertir en parseFloat juste en dessous
+            return;
         }
 
-        // Pour le reste, on convertit la charge utile en nombre
         var val = parseFloat(rawPayload);
-        
-        // Maj manuelle du cap depuis l'ESP s'il l'envoi explicitement
+
         if (key === 'CAP' || key === 'Cap' ) {
             hasMqttHeading = true;
             currentHeading = val;
@@ -371,44 +443,43 @@ var rawMarker = L.marker([43.115, 6.124], { icon: rawIcon, zIndexOffset: 999 }).
         document.getElementById('gps-kal').textContent = kalLat.toFixed(6) + ',  ' + kalLng.toFixed(6);
     }
 
-function updateDrone(lat, lng, isKal) {
-    if (lat === 0 && lng === 0) return;
-    droneMarker.setLatLng([lat, lng]);
-    if (!mapCentered) { map.setView([lat, lng], 18); mapCentered = true; }
+    function updateDrone(lat, lng, isKal) {
+        if (lat === 0 && lng === 0) return;
+        droneMarker.setLatLng([lat, lng]);
+        if (!mapCentered) { map.setView([lat, lng], 18); mapCentered = true; }
 
-    if (waypoints.length > 0) {
-        polyToFirst.setLatLngs([[lat, lng], [waypoints[0].lat, waypoints[0].lng]]);
-    } else {
-        polyToFirst.setLatLngs([]);
-    }
-
-    if (isKal) {
-        // --- Calcul dynamique du cap basé sur la trajectoire (Fallback) ---
-        if (!hasMqttHeading && kalTrackPts.length > 0) {
-            var prevPt = kalTrackPts[kalTrackPts.length - 1];
-            if (prevPt[0] !== lat || prevPt[1] !== lng) {
-                var lat1 = prevPt[0] * Math.PI / 180;
-                var lat2 = lat * Math.PI / 180;
-                var dLng = (lng - prevPt[1]) * Math.PI / 180;
-                var y = Math.sin(dLng) * Math.cos(lat2);
-                var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-                var brng = Math.atan2(y, x) * 180 / Math.PI;
-                currentHeading = (brng + 360) % 360; // Convertir en 0-360
-                
-                var el = document.getElementById('drone-arrow-container');
-                if (el) el.style.transform = 'rotate(' + currentHeading + 'deg)';
-            }
+        if (waypoints.length > 0) {
+            polyToFirst.setLatLngs([[lat, lng], [waypoints[0].lat, waypoints[0].lng]]);
+        } else {
+            polyToFirst.setLatLngs([]);
         }
-        
-        kalTrackPts.push([lat, lng]);
-        if (kalTrackPts.length > 500) kalTrackPts.shift();
-        polyKalTrack.setLatLngs(kalTrackPts);
-    } else {
-        rawTrackPts.push([lat, lng]);
-        if (rawTrackPts.length > 500) rawTrackPts.shift();
-        polyRawTrack.setLatLngs(rawTrackPts);
+
+        if (isKal) {
+            if (!hasMqttHeading && kalTrackPts.length > 0) {
+                var prevPt = kalTrackPts[kalTrackPts.length - 1];
+                if (prevPt[0] !== lat || prevPt[1] !== lng) {
+                    var lat1 = prevPt[0] * Math.PI / 180;
+                    var lat2 = lat * Math.PI / 180;
+                    var dLng = (lng - prevPt[1]) * Math.PI / 180;
+                    var y = Math.sin(dLng) * Math.cos(lat2);
+                    var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+                    var brng = Math.atan2(y, x) * 180 / Math.PI;
+                    currentHeading = (brng + 360) % 360;
+
+                    var el = document.getElementById('drone-arrow-container');
+                    if (el) el.style.transform = 'rotate(' + currentHeading + 'deg)';
+                }
+            }
+
+            kalTrackPts.push([lat, lng]);
+            if (kalTrackPts.length > 500) kalTrackPts.shift();
+            polyKalTrack.setLatLngs(kalTrackPts);
+        } else {
+            rawTrackPts.push([lat, lng]);
+            if (rawTrackPts.length > 500) rawTrackPts.shift();
+            polyRawTrack.setLatLngs(rawTrackPts);
+        }
     }
-}
 
     function connectMqtt() {
         client.connect({
@@ -417,6 +488,7 @@ function updateDrone(lat, lng, isKal) {
             onSuccess: function() {
                 document.getElementById('status').innerHTML = '🟢 Connecté au broker';
                 client.subscribe(topicStatus + '#');
+                client.subscribe(topicRouteInfo);
             },
             onFailure: function(e) {
                 document.getElementById('status').innerHTML = '🔴 Erreur : ' + e.errorMessage;
@@ -460,7 +532,6 @@ function updateDrone(lat, lng, isKal) {
             await delay(100);
         }
 
-        // WPCNT en dernier — déclenche le chargement côté ESP
         await delay(150);
         var mCnt = new Paho.MQTT.Message('WPCNT=' + waypoints.length);
         mCnt.destinationName = topicCmd;
@@ -474,13 +545,14 @@ function updateDrone(lat, lng, isKal) {
     }
 
     function delay(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
-    
+
     function updateRoll(rollDeg) {
-    document.getElementById('roll-rotate').setAttribute(
-        'transform', 'rotate(' + (-rollDeg) + ' 80 80)'
-    );
-    document.getElementById('roll-val').textContent = rollDeg.toFixed(1) + '°';
-}
+        document.getElementById('roll-rotate').setAttribute(
+            'transform', 'rotate(' + (-rollDeg) + ' 80 80)'
+        );
+        document.getElementById('roll-val').textContent = rollDeg.toFixed(1) + '°';
+    }
+
     // ── BOOT ──
     connectMqtt();
 </script>
